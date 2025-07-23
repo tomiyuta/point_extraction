@@ -1,0 +1,12 @@
+{
+    "win_rate_threshold": 85.0,
+    "default_input_file": "20250720.csv",
+    "output_columns": [
+        "方向",
+        "銘柄", 
+        "エントリー時刻",
+        "クローズ時刻",
+        "勝率_30日",
+        "合計変動pips_30日"
+    ]
+} 
