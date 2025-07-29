@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 import sys
 import os
 import json
@@ -33,15 +33,39 @@ def parse_time(time_str):
     except:
         return None
 
-def time_overlap(start1, end1, start2, end2):
-    """2つの時間帯が重複するかチェック"""
-    if start1 <= end2 and start2 <= end1:
+def parse_datetime_with_date(date_str, entry_time_str, close_time_str):
+    """日付と時刻を組み合わせてdatetimeオブジェクトに変換"""
+    try:
+        # 基準日を日付として使用
+        date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
+        entry_time_obj = datetime.strptime(entry_time_str, '%H:%M:%S').time()
+        close_time_obj = datetime.strptime(close_time_str, '%H:%M:%S').time()
+        
+        # 日付と時刻を組み合わせ
+        entry_datetime = datetime.combine(date_obj, entry_time_obj)
+        close_datetime = datetime.combine(date_obj, close_time_obj)
+        
+        # クローズ時刻がエントリー時刻より早い場合は翌日として扱う
+        if close_datetime < entry_datetime:
+            close_datetime += timedelta(days=1)
+            
+        return entry_datetime, close_datetime
+    except:
+        return None, None
+
+def time_overlap_with_date(entry1, close1, entry2, close2):
+    """日付情報を含めた2つの時間帯が重複するかチェック"""
+    if entry1 is None or close1 is None or entry2 is None or close2 is None:
+        return False
+    
+    # 日付情報を含めた重複判定
+    if entry1 <= close2 and entry2 <= close1:
         return True
     return False
 
 def process_csv(input_file=None, output_file=None, win_rate_threshold=None):
     """
-    CSVファイルを処理する関数
+    CSVファイルを処理する関数（修正版）
     
     Args:
         input_file (str): 入力CSVファイル名
@@ -69,7 +93,7 @@ def process_csv(input_file=None, output_file=None, win_rate_threshold=None):
         print(f"エラー: ファイル '{input_file}' が見つかりません。")
         return
     
-    print(f"=== CSV処理開始 ===")
+    print(f"=== CSV処理開始（修正版） ===")
     print(f"入力ファイル: {input_file}")
     print(f"勝率閾値: {win_rate_threshold}%")
     
@@ -84,15 +108,20 @@ def process_csv(input_file=None, output_file=None, win_rate_threshold=None):
     
     print(f"勝率{win_rate_threshold}%以上フィルタ後: {len(filtered_df)}行")
     
-    # 2. エントリー時刻とクローズ時刻をtimeオブジェクトに変換
-    filtered_df['エントリー時刻_時間'] = filtered_df['エントリー時刻'].apply(parse_time)
-    filtered_df['クローズ時刻_時間'] = filtered_df['クローズ時刻'].apply(parse_time)
+    # 2. 日付情報を含めたエントリー・クローズ時刻をdatetimeオブジェクトに変換
+    filtered_df['エントリー日時'] = None
+    filtered_df['クローズ日時'] = None
     
-    # 時刻が解析できない行を除外
-    filtered_df = filtered_df.dropna(subset=['エントリー時刻_時間', 'クローズ時刻_時間'])
-    print(f"時刻解析後: {len(filtered_df)}行")
+    for idx, row in filtered_df.iterrows():
+        entry_dt, close_dt = parse_datetime_with_date(row['基準日'], row['エントリー時刻'], row['クローズ時刻'])
+        filtered_df.at[idx, 'エントリー日時'] = entry_dt
+        filtered_df.at[idx, 'クローズ日時'] = close_dt
     
-    # 3. 時刻重複をチェックして重複する行の組み合わせを特定
+    # 日時が解析できない行を除外
+    filtered_df = filtered_df.dropna(subset=['エントリー日時', 'クローズ日時'])
+    print(f"日時解析後: {len(filtered_df)}行")
+    
+    # 3. 日付情報を含めた時刻重複をチェックして重複する行の組み合わせを特定
     indices_to_remove = set()
     
     for i in range(len(filtered_df)):
@@ -103,12 +132,12 @@ def process_csv(input_file=None, output_file=None, win_rate_threshold=None):
             if j in indices_to_remove:
                 continue
                 
-            # 時刻重複をチェック
-            if time_overlap(
-                filtered_df.iloc[i]['エントリー時刻_時間'],
-                filtered_df.iloc[i]['クローズ時刻_時間'],
-                filtered_df.iloc[j]['エントリー時刻_時間'],
-                filtered_df.iloc[j]['クローズ時刻_時間']
+            # 日付情報を含めた時刻重複をチェック
+            if time_overlap_with_date(
+                filtered_df.iloc[i]['エントリー日時'],
+                filtered_df.iloc[i]['クローズ日時'],
+                filtered_df.iloc[j]['エントリー日時'],
+                filtered_df.iloc[j]['クローズ日時']
             ):
                 # 勝率を比較
                 win_rate_i = filtered_df.iloc[i]['勝率_30日_数値']
@@ -134,7 +163,7 @@ def process_csv(input_file=None, output_file=None, win_rate_threshold=None):
     print(f"重複除去後: {len(final_df)}行")
     
     # 4. エントリー時刻でソート
-    final_df = final_df.sort_values('エントリー時刻_時間')
+    final_df = final_df.sort_values('エントリー日時')
     
     # 5. 必要な列のみを選択
     output_columns = config.get('output_columns', [

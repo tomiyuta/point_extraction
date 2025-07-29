@@ -1,6 +1,6 @@
 {
     "win_rate_threshold": 85.0,
-    "default_input_file": "20250720.csv",
+    "default_input_file": "sample_data.csv",
     "output_columns": [
         "方向",
         "銘柄", 
